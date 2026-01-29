@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hyperhidrosis Treatment Study - Michael's Reaction Tracking</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/recharts@2.5.0/dist/Recharts.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module">
+        const { useState, useEffect } = React;
+        const { LineChart, Line, BarChart, Bar, ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } = Recharts;
+
+        function App() {
+            const [isAuthenticated, setIsAuthenticated] = useState(false);
+            const [password, setPassword] = useState('');
+            const [entries, setEntries] = useState([]);
+            const [newDate, setNewDate] = useState('');
+            const [newReaction, setNewReaction] = useState('');
+            const [error, setError] = useState('');
+            const [loading, setLoading] = useState(true);
+
+            // Load data from storage on mount
+            useEffect(() => {
+                loadData();
+            }, []);
+
+            const loadData = async () => {
+                try {
+                    const result = await window.storage.get('study-entries');
+                    if (result && result.value) {
+                        setEntries(JSON.parse(result.value));
+                    }
+                } catch (err) {
+                    console.log('No existing data found');
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const saveData = async (data) => {
+                try {
+                    await window.storage.set('study-entries', JSON.stringify(data));
+                } catch (err) {
+                    console.error('Error saving data:', err);
+                }
+            };
+
+            const handleLogin = (e) => {
+                e.preventDefault();
+                if (password === 'sweat') {
+                    setIsAuthenticated(true);
+                    setError('');
+                } else {
+                    setError('Incorrect password');
+                }
+            };
+
+            const handleAddEntry = (e) => {
+                e.preventDefault();
+                setError('');
+
+                if (!newDate || !newReaction) {
+                    setError('Please fill in both date and reaction value');
+                    return;
+                }
+
+                const reaction = parseInt(newReaction);
+                if (isNaN(reaction) || reaction < 1 || reaction > 10) {
+                    setError('Reaction must be a number between 1 and 10');
+                    return;
+                }
+
+                const newEntry = {
+                    id: Date.now(),
+                    date: newDate,
+                    reaction: reaction,
+                    timestamp: new Date(newDate).getTime()
+                };
+
+                const updatedEntries = [...entries, newEntry].sort((a, b) => a.timestamp - b.timestamp);
+                setEntries(updatedEntries);
+                saveData(updatedEntries);
+                
+                setNewDate('');
+                setNewReaction('');
+            };
+
+            const handleDeleteEntry = (id) => {
+                if (confirm('Are you sure you want to delete this entry?')) {
+                    const updatedEntries = entries.filter(entry => entry.id !== id);
+                    setEntries(updatedEntries);
+                    saveData(updatedEntries);
+                }
+            };
+
+            const calculateStats = () => {
+                if (entries.length === 0) return null;
+                
+                const reactions = entries.map(e => e.reaction);
+                const avg = reactions.reduce((a, b) => a + b, 0) / reactions.length;
+                const min = Math.min(...reactions);
+                const max = Math.max(...reactions);
+                
+                // Calculate trend (simple linear regression slope)
+                const n = entries.length;
+                if (n < 2) return { avg, min, max, trend: 0 };
+                
+                const xMean = (n - 1) / 2;
+                const yMean = avg;
+                
+                let numerator = 0;
+                let denominator = 0;
+                
+                entries.forEach((entry, i) => {
+                    numerator += (i - xMean) * (entry.reaction - yMean);
+                    denominator += Math.pow(i - xMean, 2);
+                });
+                
+                const slope = denominator !== 0 ? numerator / denominator : 0;
+                
+                return { avg, min, max, trend: slope };
+            };
+
+            const stats = calculateStats();
+
+            // Prepare data for charts
+            const chartData = entries.map((entry, index) => ({
+                ...entry,
+                index: index + 1,
+                formattedDate: new Date(entry.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+            }));
+
+            if (loading) {
+                return (
+                    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+                        <div className="text-xl text-gray-600">Loading...</div>
+                    </div>
+                );
+            }
+
+            if (!isAuthenticated) {
+                return (
+                    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+                        <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full">
+                            <div className="text-center mb-6">
+                                <h1 className="text-3xl font-bold text-gray-800 mb-2">Study Access</h1>
+                                <p className="text-gray-600">Hyperhidrosis Treatment Study</p>
+                            </div>
+                            <form onSubmit={handleLogin}>
+                                <div className="mb-4">
+                                    <label className="block text-gray-700 text-sm font-semibold mb-2">
+                                        Enter Password
+                                    </label>
+                                    <input
+                                        type="password"
+                                        value={password}
+                                        onChange={(e) => setPassword(e.target.value)}
+                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        placeholder="Password"
+                                    />
+                                </div>
+                                {error && (
+                                    <div className="mb-4 text-red-600 text-sm">{error}</div>
+                                )}
+                                <button
+                                    type="submit"
+                                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition duration-200"
+                                >
+                                    Access Study
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4 md:p-8">
+                    <div className="max-w-7xl mx-auto">
+                        {/* Header */}
+                        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+                            <div className="flex justify-between items-start">
+                                <div>
+                                    <h1 className="text-3xl font-bold text-gray-800 mb-2">
+                                        Hyperhidrosis Treatment Study
+                                    </h1>
+                                    <p className="text-gray-600 mb-1">
+                                        <span className="font-semibold">Participant:</span> Michael (Observer)
+                                    </p>
+                                    <p className="text-gray-600 mb-1">
+                                        <span className="font-semibold">Subject:</span> Neil (Treatment Recipient)
+                                    </p>
+                                    <p className="text-gray-500 text-sm mt-2">
+                                        Treatment Start Date: Yesterday | Measurement Frequency: Weekly (Random)
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={() => setIsAuthenticated(false)}
+                                    className="text-sm text-gray-500 hover:text-gray-700"
+                                >
+                                    Logout
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Study Objectives */}
+                        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+                            <h2 className="text-xl font-bold text-gray-800 mb-3">Study Objectives</h2>
+                            <ol className="list-decimal list-inside space-y-2 text-gray-700">
+                                <li>Measure effectiveness of hyperhidrosis treatment through perceived sweat levels during handshakes</li>
+                                <li>Determine if Michael's reaction correlates with actual sweat perception or knowledge of Neil's condition</li>
+                            </ol>
+                        </div>
+
+                        {/* Data Entry Form */}
+                        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+                            <h2 className="text-xl font-bold text-gray-800 mb-4">Record New Observation</h2>
+                            <form onSubmit={handleAddEntry} className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div>
+                                    <label className="block text-gray-700 text-sm font-semibold mb-2">
+                                        Date of Observation
+                                    </label>
+                                    <input
+                                        type="date"
+                                        value={newDate}
+                                        onChange={(e) => setNewDate(e.target.value)}
+                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-gray-700 text-sm font-semibold mb-2">
+                                        Reaction Score (1-10)
+                                    </label>
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        max="10"
+                                        value={newReaction}
+                                        onChange={(e) => setNewReaction(e.target.value)}
+                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        placeholder="1-10"
+                                    />
+                                </div>
+                                <div className="flex items-end">
+                                    <button
+                                        type="submit"
+                                        className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition duration-200"
+                                    >
+                                        Add Entry
+                                    </button>
+                                </div>
+                            </form>
+                            {error && (
+                                <div className="mt-4 text-red-600 text-sm">{error}</div>
+                            )}
+                            <p className="mt-4 text-sm text-gray-500">
+                                Scale: 1 = No noticeable sweat, 10 = Extremely sweaty handshake
+                            </p>
+                        </div>
+
+                        {/* Statistics */}
+                        {stats && (
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                                <div className="bg-white rounded-lg shadow-lg p-6">
+                                    <div className="text-sm text-gray-600 mb-1">Average Reaction</div>
+                                    <div className="text-3xl font-bold text-blue-600">{stats.avg.toFixed(2)}</div>
+                                </div>
+                                <div className="bg-white rounded-lg shadow-lg p-6">
+                                    <div className="text-sm text-gray-600 mb-1">Minimum</div>
+                                    <div className="text-3xl font-bold text-green-600">{stats.min}</div>
+                                </div>
+                                <div className="bg-white rounded-lg shadow-lg p-6">
+                                    <div className="text-sm text-gray-600 mb-1">Maximum</div>
+                                    <div className="text-3xl font-bold text-red-600">{stats.max}</div>
+                                </div>
+                                <div className="bg-white rounded-lg shadow-lg p-6">
+                                    <div className="text-sm text-gray-600 mb-1">Trend</div>
+                                    <div className={`text-3xl font-bold ${stats.trend < 0 ? 'text-green-600' : stats.trend > 0 ? 'text-red-600' : 'text-gray-600'}`}>
+                                        {stats.trend < -0.01 ? '↓ Improving' : stats.trend > 0.01 ? '↑ Worsening' : '→ Stable'}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Data Table */}
+                        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+                            <h2 className="text-xl font-bold text-gray-800 mb-4">Observation History</h2>
+                            {entries.length === 0 ? (
+                                <p className="text-gray-500 text-center py-8">No observations recorded yet</p>
+                            ) : (
+                                <div className="overflow-x-auto">
+                                    <table className="w-full">
+                                        <thead>
+                                            <tr className="border-b-2 border-gray-200">
+                                                <th className="text-left py-3 px-4 text-gray-700 font-semibold">#</th>
+                                                <th className="text-left py-3 px-4 text-gray-700 font-semibold">Date</th>
+                                                <th className="text-left py-3 px-4 text-gray-700 font-semibold">Reaction Score</th>
+                                                <th className="text-left py-3 px-4 text-gray-700 font-semibold">Visual</th>
+                                                <th className="text-left py-3 px-4 text-gray-700 font-semibold">Action</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {entries.map((entry, index) => (
+                                                <tr key={entry.id} className="border-b border-gray-100 hover:bg-gray-50">
+                                                    <td className="py-3 px-4 text-gray-600">{index + 1}</td>
+                                                    <td className="py-3 px-4 text-gray-800">
+                                                        {new Date(entry.date).toLocaleDateString('en-US', { 
+                                                            year: 'numeric', 
+                                                            month: 'long', 
+                                                            day: 'numeric' 
+                                                        })}
+                                                    </td>
+                                                    <td className="py-3 px-4">
+                                                        <span className={`font-bold text-lg ${
+                                                            entry.reaction <= 3 ? 'text-green-600' :
+                                                            entry.reaction <= 6 ? 'text-yellow-600' :
+                                                            'text-red-600'
+                                                        }`}>
+                                                            {entry.reaction}
+                                                        </span>
+                                                    </td>
+                                                    <td className="py-3 px-4">
+                                                        <div className="flex items-center">
+                                                            <div className="w-32 bg-gray-200 rounded-full h-3">
+                                                                <div 
+                                                                    className={`h-3 rounded-full ${
+                                                                        entry.reaction <= 3 ? 'bg-green-500' :
+                                                                        entry.reaction <= 6 ? 'bg-yellow-500' :
+                                                                        'bg-red-500'
+                                                                    }`}
+                                                                    style={{ width: `${entry.reaction * 10}%` }}
+                                                                ></div>
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                    <td className="py-3 px-4">
+                                                        <button
+                                                            onClick={() => handleDeleteEntry(entry.id)}
+                                                            className="text-red-600 hover:text-red-800 text-sm"
+                                                        >
+                                                            Delete
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Charts */}
+                        {chartData.length > 0 && (
+                            <>
+                                {/* Line Chart - Reaction Over Time */}
+                                <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+                                    <h2 className="text-xl font-bold text-gray-800 mb-4">Reaction Trend Over Time</h2>
+                                    <ResponsiveContainer width="100%" height={300}>
+                                        <LineChart data={chartData}>
+                                            <CartesianGrid strokeDasharray="3 3" />
+                                            <XAxis dataKey="formattedDate" />
+                                            <YAxis domain={[0, 10]} />
+                                            <Tooltip />
+                                            <Legend />
+                                            <Line 
+                                                type="monotone" 
+                                                dataKey="reaction" 
+                                                stroke="#3b82f6" 
+                                                strokeWidth={2}
+                                                name="Reaction Score"
+                                            />
+                                        </LineChart>
+                                    </ResponsiveContainer>
+                                </div>
+
+                                {/* Bar Chart */}
+                                <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+                                    <h2 className="text-xl font-bold text-gray-800 mb-4">Reaction Comparison by Observation</h2>
+                                    <ResponsiveContainer width="100%" height={300}>
+                                        <BarChart data={chartData}>
+                                            <CartesianGrid strokeDasharray="3 3" />
+                                            <XAxis dataKey="formattedDate" />
+                                            <YAxis domain={[0, 10]} />
+                                            <Tooltip />
+                                            <Legend />
+                                            <Bar dataKey="reaction" fill="#8b5cf6" name="Reaction Score" />
+                                        </BarChart>
+                                    </ResponsiveContainer>
+                                </div>
+
+                                {/* Scatter Plot */}
+                                <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+                                    <h2 className="text-xl font-bold text-gray-800 mb-4">Reaction Distribution</h2>
+                                    <ResponsiveContainer width="100%" height={300}>
+                                        <ScatterChart>
+                                            <CartesianGrid strokeDasharray="3 3" />
+                                            <XAxis dataKey="index" name="Observation #" />
+                                            <YAxis dataKey="reaction" name="Reaction" domain={[0, 10]} />
+                                            <Tooltip cursor={{ strokeDasharray: '3 3' }} />
+                                            <Legend />
+                                            <Scatter name="Observations" data={chartData} fill="#10b981" />
+                                        </ScatterChart>
+                                    </ResponsiveContainer>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</body>
+</html>
